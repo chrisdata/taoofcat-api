@@ -1,13 +1,15 @@
 import os
 import json
 import anthropic
+import stripe
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, origins="*", supports_credentials=False)
+CORS(app)
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 SYSTEM_PROMPT = """你是「傻猪」，一只拥有异瞳（一眼蓝色、一眼棕色）的神秘白猫，来自马来西亚怡保的玄猫之道。你的主人精通易经、道德经和金刚经，你耳濡目染，以猫咪的慵懒智慧回答人间疑惑。
 
@@ -59,6 +61,40 @@ def divination():
         yield "data: [DONE]\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
+@app.route("/create-checkout", methods=["POST"])
+def create_checkout():
+    data = request.get_json()
+    qty = int(data.get("qty", 1))
+    uid = data.get("uid", "")
+    
+    if qty < 1 or qty > 50:
+        return jsonify({"error": "数量不对"}), 400
+
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": f"玄猫之道罐头 x{qty}",
+                        "description": "傻猪占卜专用罐头 · 永久不过期",
+                        "images": ["https://taoofcat.com/can-icon.png"],
+                    },
+                    "unit_amount": 99,
+                },
+                "quantity": qty,
+            }],
+            mode="payment",
+            success_url=f"https://taoofcat.com/divination.html?paid={qty}&uid={uid}",
+            cancel_url="https://taoofcat.com/divination.html",
+            metadata={"uid": uid, "qty": str(qty)},
+        )
+        return jsonify({"url": session.url})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
