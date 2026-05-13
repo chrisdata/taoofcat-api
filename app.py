@@ -2,6 +2,7 @@ import os
 import json
 import anthropic
 import stripe
+import requests as http_requests
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 
@@ -38,14 +39,16 @@ def divination():
     gua_nature = data.get("gua_nature", "").strip()
     quote = data.get("quote", "").strip()
     quote_src = data.get("quote_src", "").strip()
+    weather_context = data.get("weather_context", "").strip()
 
     if not question:
         return jsonify({"error": "请输入问题"}), 400
 
-    user_message = f"""用户的猫咪叫：{cat_name}
+    weather_line = f"\n占卜时的天时背景：{weather_context}" if weather_context else ""
+    user_message = f"""用户的名字：{cat_name}
 用户的问题是：{question}
 抽到的卦象是：{gua_name}（{gua_nature}）
-相关名句：{quote} — {quote_src}
+相关名句：{quote} — {quote_src}{weather_line}
 
 请给出个性化解读。"""
 
@@ -61,6 +64,32 @@ def divination():
         yield "data: [DONE]\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
+@app.route("/weather", methods=["POST"])
+def weather():
+    data = request.get_json()
+    lat = data.get("lat")
+    lon = data.get("lon")
+    api_key = os.environ.get("OPENWEATHER_API_KEY")
+    
+    try:
+        res = http_requests.get(
+            f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=zh_cn",
+            timeout=5
+        )
+        d = res.json()
+        return jsonify({
+            "city": d.get("name", ""),
+            "country": d.get("sys", {}).get("country", ""),
+            "temp": round(d["main"]["temp"]),
+            "desc": d["weather"][0]["description"],
+            "main": d["weather"][0]["main"],
+            "humidity": d["main"]["humidity"],
+            "feels_like": round(d["main"]["feels_like"])
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/create-checkout", methods=["POST"])
 def create_checkout():
