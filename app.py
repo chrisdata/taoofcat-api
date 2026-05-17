@@ -470,9 +470,6 @@ def create_checkout():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-"""
-玄猫之道 · app.py 新增接口（追加到现有 app.py）
-粘贴位置：在 
 # ── /stripe-webhook ──────────────────────────────────────────────────────────
 
 @app.route("/stripe-webhook", methods=["POST"])
