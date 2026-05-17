@@ -545,6 +545,36 @@ def whisper():
     if not message:
         return jsonify({"error": "Empty message"}), 400
 
+    # ── 内容过滤：先判断是否合适 ──
+    if lang == "ja":
+        filter_prompt = "以下のメッセージに、粗暴な言葉、侮辱、スパム、または不適切な内容が含まれているか判断してください。YESまたはNOのみ答えてください。"
+        filter_msg    = f"メッセージ：{message}"
+    elif lang == "en":
+        filter_prompt = "Does the following message contain profanity, insults, spam, or inappropriate content? Answer YES or NO only."
+        filter_msg    = f"Message: {message}"
+    else:
+        filter_prompt = "判断以下留言是否包含粗口、侮辱、垃圾信息或不雅内容。只回答YES或NO。"
+        filter_msg    = f"留言：{message}"
+
+    try:
+        check = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=5,
+            system=filter_prompt,
+            messages=[{"role": "user", "content": filter_msg}]
+        )
+        verdict = check.content[0].text.strip().upper()
+        if verdict.startswith("YES"):
+            if lang == "en":
+                return jsonify({"error": "inappropriate", "message": "Sha Zhu only accepts kind words 🐾"}), 400
+            elif lang == "ja":
+                return jsonify({"error": "inappropriate", "message": "シャージューは優しい言葉だけを受け取ります 🐾"}), 400
+            else:
+                return jsonify({"error": "inappropriate", "message": "傻猪只接受善意的话 🐾"}), 400
+    except Exception:
+        pass  # 过滤失败就继续，不影响正常使用
+
+    # ── 生成猫咪回应 ──
     system_prompt = get_whisper_prompt(cat_name)
 
     if lang == "ja":
