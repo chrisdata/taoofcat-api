@@ -8,7 +8,7 @@ from flask_cors import CORS
 from urllib.parse import quote
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
