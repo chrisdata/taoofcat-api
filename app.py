@@ -5,6 +5,7 @@ import stripe
 import requests as http_requests
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
+from urllib.parse import quote
 
 app = Flask(__name__)
 CORS(app)
@@ -797,7 +798,7 @@ def create_feeding_checkout():
     # success_url 带参数，用于前端显示感谢弹窗
     success_url = (
         f"https://taoofcat.com/cat-{cat_id}.html"
-        f"?feeding_success=1&donor={donor_name}&amount={amount_usd:.0f}"
+        f"?feeding_success=1&donor={quote(donor_name)}&amount={amount_usd:.0f}"
     )
     cancel_url = f"https://taoofcat.com/cat-{cat_id}.html"
 
