@@ -470,6 +470,109 @@ def create_checkout():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+# ── /whisper 接口 ─────────────────────────────────────────────────────────────
+
+@app.route("/whisper", methods=["POST", "OPTIONS"])
+def whisper():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    data     = request.get_json()
+    cat_name = data.get("cat_name", "傻猪").strip()
+    message  = data.get("message", "").strip()
+    lang     = data.get("lang", "zh")
+
+    if not message:
+        return jsonify({"error": "Empty message"}), 400
+
+    system_prompt = get_whisper_prompt(cat_name)
+
+    if lang == "ja":
+        user_msg = f"訪問者のメッセージ：{message}"
+    elif lang == "en":
+        user_msg = f"The visitor whispered: {message}"
+    else:
+        user_msg = f"访客说：{message}"
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}]
+        )
+        reply = response.content[0].text.strip()
+        return jsonify({"reply": reply})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── /create-feeding-checkout 接口 ─────────────────────────────────────────────
+
+@app.route("/create-feeding-checkout", methods=["POST", "OPTIONS"])
+def create_feeding_checkout():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    data       = request.get_json()
+    amount_usd = float(data.get("amount", 3))
+    cat_id     = data.get("cat_id", "shazhu").strip()
+    cat_name   = data.get("cat_name", "傻猪").strip()
+    donor_name = data.get("donor_name", "").strip() or "匿名"
+    lang       = data.get("lang", "zh")
+
+    if amount_usd < 1 or amount_usd > 999:
+        return jsonify({"error": "Invalid amount"}), 400
+
+    amount_cents = int(round(amount_usd * 100))
+
+    if lang == "en":
+        product_name = f"Feed {cat_name} · ${amount_usd:.0f} Can"
+        product_desc = f"A real can for {cat_name}. The owner will photograph the feeding. 🐾"
+    elif lang == "ja":
+        product_name = f"{cat_name}に缶詰を · ${amount_usd:.0f}"
+        product_desc = f"{cat_name}が本当に食べます。オーナーが写真を撮ります。🐾"
+    else:
+        product_name = f"请{cat_name}吃罐头 · ${amount_usd:.0f}"
+        product_desc = f"{cat_name}会真的吃到。主人收到通知后拍照/视频记录。🐾"
+
+    success_url = (
+        f"https://taoofcat.com/cat-{cat_id}.html"
+        f"?feeding_success=1&donor={quote(donor_name)}&amount={amount_usd:.0f}"
+    )
+    cancel_url = f"https://taoofcat.com/cat-{cat_id}.html"
+
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": product_name,
+                        "description": product_desc,
+                        "images": ["https://taoofcat.com/can-icon.png"],
+                    },
+                    "unit_amount": amount_cents,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "type": "feeding",
+                "cat_id": cat_id,
+                "cat_name": cat_name,
+                "donor_name": donor_name,
+                "amount": str(amount_usd),
+                "lang": lang,
+            },
+        )
+        return jsonify({"url": session.url})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── /stripe-webhook ──────────────────────────────────────────────────────────
 
 @app.route("/stripe-webhook", methods=["POST"])
