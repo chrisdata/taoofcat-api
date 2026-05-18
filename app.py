@@ -412,6 +412,59 @@ def is_japanese_cat(cat_name: str) -> bool:
 
 # ── Routes ───────────────────────────────────────────────────
 
+# ── 猫咪 Cloudinary 图片映射 ─────────────────────────────────
+CAT_SHARE_NAMES = {
+    "shazhu":     {"zh": "傻猪",   "en": "Shazhu"},
+    "feimao":     {"zh": "肥猫",   "en": "Feimao"},
+    "feipo":      {"zh": "茶室猫", "en": "Feipo"},
+    "hubanzai":   {"zh": "虎斑仔", "en": "Hubanzai"},
+    "mengmengda": {"zh": "萌萌哒", "en": "Mengmengda"},
+}
+OG_IMAGE = "https://res.cloudinary.com/dlm2iyc5i/image/upload/v1779115632/og-image.jpg"
+
+
+@app.route("/share")
+def share_redirect():
+    cat  = request.args.get("cat",  "shazhu").strip().lower()
+    lang = request.args.get("lang", "zh").strip().lower()
+    gua  = request.args.get("gua",  "").strip()
+    ref  = request.args.get("ref",  "").strip()
+
+    og_image  = OG_IMAGE
+    cat_names = CAT_SHARE_NAMES.get(cat, {"zh": "玄猫", "en": "Cat"})
+    cat_name   = cat_names["en"] if lang == "en" else cat_names["zh"]
+
+    if lang == "en":
+        og_title = f"Tao of Cat Oracle · {cat_name}" + (f" · {gua}" if gua else "")
+        og_desc  = "See what the cat oracle reveals for you. Free divination at TaoOfCat.com"
+    else:
+        og_title = f"玄猫之道 · {cat_name}占卜" + (f" · {gua}" if gua else "")
+        og_desc  = "听猫说话，以道解惑。免费占卜在 TaoOfCat.com"
+
+    invite_param = f"?ref={ref}" if ref else ""
+    redirect_url = f"https://TaoOfCat.com/divination.html{invite_param}"
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta property="og:type"         content="website">
+  <meta property="og:url"          content="https://web-production-907c5.up.railway.app/share?cat={cat}&amp;lang={lang}">
+  <meta property="og:title"        content="{og_title}">
+  <meta property="og:description"  content="{og_desc}">
+  <meta property="og:image"        content="{og_image}">
+  <meta property="og:image:width"  content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card"        content="summary_large_image">
+  <meta name="twitter:image"       content="{og_image}">
+  <meta http-equiv="refresh"       content="0;url={redirect_url}">
+  <script>window.location.replace("{redirect_url}");</script>
+</head>
+<body></body>
+</html>"""
+    return Response(html, mimetype="text/html")
+
+
 @app.route("/")
 def index():
     return jsonify({"status": "Tao of Cat online · 玄猫之道在线", "cats_zh": list(CAT_PROFILES_ZH.keys()), "cats_en": list(CAT_PROFILES_EN.keys())})
