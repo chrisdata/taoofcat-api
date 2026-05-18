@@ -423,6 +423,24 @@ CAT_SHARE_NAMES = {
 OG_IMAGE = "https://res.cloudinary.com/dlm2iyc5i/image/upload/v1779115632/og-image.jpg"
 
 
+@app.route("/robots.txt")
+def robots():
+    # 放行所有社交媒体爬虫爬取 /share
+    txt = """User-agent: *
+Allow: /share
+
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: Twitterbot
+Allow: /
+
+User-agent: LinkedInBot
+Allow: /
+"""
+    return Response(txt, mimetype="text/plain")
+
+
 @app.route("/share")
 def share_redirect():
     cat  = request.args.get("cat",  "shazhu").strip().lower()
