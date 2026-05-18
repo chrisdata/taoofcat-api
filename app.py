@@ -430,10 +430,13 @@ def share_redirect():
     gua  = request.args.get("gua",  "").strip()
     ref  = request.args.get("ref",  "").strip()
 
-    img       = request.args.get("img", "").strip()
-    og_image  = img if img else OG_IMAGE
+    og_image  = OG_IMAGE  # 固定用 og-image.jpg，不接受外部 img 参数
     cat_names = CAT_SHARE_NAMES.get(cat, {"zh": "玄猫", "en": "Cat"})
-    cat_name   = cat_names["en"] if lang == "en" else cat_names["zh"]
+    cat_name  = cat_names["en"] if lang == "en" else cat_names["zh"]
+    # 防 XSS：转义插入 HTML 的参数
+    import html as _html
+    gua      = _html.escape(gua)
+    cat_name = _html.escape(cat_name)
 
     if lang == "en":
         og_title = f"Tao of Cat Oracle · {cat_name}" + (f" · {gua}" if gua else "")
