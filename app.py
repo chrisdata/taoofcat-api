@@ -430,7 +430,8 @@ def share_redirect():
     gua  = request.args.get("gua",  "").strip()
     ref  = request.args.get("ref",  "").strip()
 
-    og_image  = OG_IMAGE
+    img       = request.args.get("img", "").strip()
+    og_image  = img if img else OG_IMAGE
     cat_names = CAT_SHARE_NAMES.get(cat, {"zh": "玄猫", "en": "Cat"})
     cat_name   = cat_names["en"] if lang == "en" else cat_names["zh"]
 
