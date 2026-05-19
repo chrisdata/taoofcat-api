@@ -770,6 +770,206 @@ def stripe_webhook():
     return jsonify({"status": "ok"})
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 中途功能 · Foster Cat Module
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ── /foster-translate ─────────────────────────────────────────
+# 接收志愿者填写的原始内容，一次生成中英日三语版本
+# 前端传入：{ name, description, requirements[], questions[], source_lang }
+# 后端返回：{ name:{zh,en,ja}, description:{zh,en,ja},
+#             requirements:{zh:[],en:[],ja:[]},
+#             questions:{zh:[],en:[],ja:[]} }
+
+@app.route("/foster-translate", methods=["POST", "OPTIONS"])
+def foster_translate():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    data = request.get_json()
+    name         = (data.get("name")        or "").strip()
+    description  = (data.get("description") or "").strip()
+    requirements = data.get("requirements", [])
+    questions    = data.get("questions",    [])
+    source_lang  = (data.get("source_lang") or "zh").strip()
+
+    if not name or not description:
+        return jsonify({"error": "name and description are required"}), 400
+
+    # 把 requirements / questions 清理成字符串列表
+    requirements = [r.strip() for r in requirements if str(r).strip()]
+    questions    = [q.strip() for q in questions    if str(q).strip()]
+
+    req_text = "\n".join(f"- {r}" for r in requirements) if requirements else "（无）"
+    que_text = "\n".join(f"- {q}" for q in questions)    if questions    else "（无）"
+
+    system_prompt = """你是一个宠物领养平台的多语言翻译助手。
+你的任务是把用户输入的中途猫资料翻译成中文、英文、日文三个版本。
+
+要求：
+- 语气温暖自然，像真实的中途志愿者在介绍自己的猫
+- 不要直译，要地道流畅
+- 猫的名字：中文保留原名，英文用音译或意译（选更好听的），日文用片假名
+- 严格按照 JSON 格式返回，不要有任何多余文字或 markdown
+- JSON 结构如下：
+{
+  "name": {"zh": "...", "en": "...", "ja": "..."},
+  "description": {"zh": "...", "en": "...", "ja": "..."},
+  "requirements": {"zh": ["..."], "en": ["..."], "ja": ["..."]},
+  "questions": {"zh": ["..."], "en": ["..."], "ja": ["..."]}
+}"""
+
+    user_msg = f"""请翻译以下中途猫资料（原文语言：{source_lang}）：
+
+猫咪名字：{name}
+
+描述：
+{description}
+
+领养要求：
+{req_text}
+
+领养问卷：
+{que_text}
+
+请返回完整的三语 JSON。"""
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1500,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}]
+        )
+        raw = response.content[0].text.strip()
+
+        # 清理可能的 markdown 代码块
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        result = json.loads(raw)
+        return jsonify(result)
+
+    except json.JSONDecodeError:
+        return jsonify({"error": "translation_parse_error", "raw": raw}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── /foster-review ────────────────────────────────────────────
+# AI 审核中途猫提交内容，防止假信息/骗局/不雅内容
+# 前端传入：{ name, description, requirements[], photos_count, country, contact }
+# 后端返回：{ status: "approved"|"flagged"|"rejected", reason, confidence }
+
+@app.route("/foster-review", methods=["POST", "OPTIONS"])
+def foster_review():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    data = request.get_json()
+    name         = (data.get("name")        or "").strip()
+    description  = (data.get("description") or "").strip()
+    requirements = data.get("requirements", [])
+    photos_count = int(data.get("photos_count", 0))
+    country      = (data.get("country")     or "").strip()
+    contact      = (data.get("contact")     or "").strip()
+
+    if not name or not description:
+        return jsonify({"status": "rejected", "reason": "名字或描述为空", "confidence": 1.0}), 200
+
+    req_text = "\n".join(f"- {r}" for r in requirements) if requirements else "无"
+
+    system_prompt = """你是一个宠物中途领养平台的内容审核员。
+你的任务是审核志愿者提交的中途猫资料，判断是否可以公开发布。
+
+审核标准：
+✅ 通过（approved）：内容真实合理，描述正常，是真实的中途猫领养信息
+⚠️ 存疑（flagged）：内容可疑但未必违规，需要人工复查
+  - 描述异常简短或模糊
+  - 联系方式格式异常
+  - 要求领养者付费（正规中途不收费）
+  - 描述风格像广告
+❌ 拒绝（rejected）：明确违规
+  - 含粗口、歧视、不雅内容
+  - 明显是卖猫而非送养
+  - 骗局特征（要求转账、礼品卡等）
+  - 内容完全无关
+
+严格按照以下 JSON 格式返回，不要有任何多余文字：
+{"status": "approved/flagged/rejected", "reason": "简短说明原因（中文，20字内）", "confidence": 0.95}"""
+
+    user_msg = f"""审核以下中途猫资料：
+
+猫名：{name}
+地区：{country}
+照片数量：{photos_count}
+联系方式：{contact}
+
+描述：
+{description}
+
+领养要求：
+{req_text}"""
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=100,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}]
+        )
+        raw = response.content[0].text.strip()
+
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        result = json.loads(raw)
+
+        # 确保字段完整
+        status     = result.get("status", "flagged")
+        reason     = result.get("reason", "")
+        confidence = float(result.get("confidence", 0.8))
+
+        # approved → 发 Telegram 静默记录
+        # flagged  → 发 Telegram 提醒人工复查
+        if status == "flagged":
+            send_telegram(
+                f"⚠️ <b>中途猫待人工复查</b>\n"
+                f"猫名：{name}\n"
+                f"地区：{country}\n"
+                f"原因：{reason}\n"
+                f"请到 Admin Dashboard 审核"
+            )
+        elif status == "rejected":
+            send_telegram(
+                f"🚫 <b>中途猫被 AI 拒绝</b>\n"
+                f"猫名：{name}\n"
+                f"地区：{country}\n"
+                f"原因：{reason}"
+            )
+
+        return jsonify({
+            "status":     status,
+            "reason":     reason,
+            "confidence": confidence
+        })
+
+    except json.JSONDecodeError:
+        # 解析失败 → 保守起见标记为 flagged
+        send_telegram(f"⚠️ <b>中途猫审核解析失败，需人工复查</b>\n猫名：{name}")
+        return jsonify({"status": "flagged", "reason": "AI审核解析失败", "confidence": 0.5})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
